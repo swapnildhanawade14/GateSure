@@ -1,0 +1,48 @@
+export type PersonCategory = 'resident' | 'daily-labor' | 'service-worker' | 'vendor' | 'guest';
+export type EntryStatus = 'entry' | 'exit';
+export type VerificationMethod = 'face' | 'manual' | 'qr';
+
+export interface Person {
+  id: string;
+  name: string;
+  phone: string;
+  category: PersonCategory;
+  associatedFlat?: string;
+  wing?: string;
+  floor?: string;
+  roomNumber?: string;
+  societyId?: string;
+  purpose?: string;
+  company?: string;
+  relation?: string;
+  registrationType?: 'resident' | 'vendor';
+  faceDescriptor?: number[] | Float32Array;
+  faceImage?: string;
+  registeredAt?: Date;
+  registeredBy: string;
+}
+
+export interface Entry {
+  id: string;
+  personId: string;
+  personName: string;
+  phone?: string;
+  personCategory: string;
+  associatedFlat?: string;
+  company?: string;
+  entryTime: Date;
+  exitTime?: Date;
+  purpose?: string;
+  status: EntryStatus;
+  verificationMethod: VerificationMethod;
+  accuracy?: number;
+}
+
+export interface Vehicle {
+  id: string;
+  residencyId: string;
+  licensePlate: string;
+  model?: string;
+  color?: string;
+  registeredAt: Date;
+}

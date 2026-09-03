@@ -1,0 +1,246 @@
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import { Entry, Person, Vehicle } from './types';
+
+export const personCollection = collection(db, 'persons');
+export const entriesCollection = collection(db, 'entries');
+export const vehiclesCollection = collection(db, 'vehicles');
+
+function normalizeFaceDescriptor(value: unknown): number[] | undefined {
+  if (!value) return undefined;
+  if (value instanceof Float32Array) return Array.from(value);
+  if (Array.isArray(value)) return value.map((item) => Number(item));
+  return undefined;
+}
+
+function normalizeEntryTimestamp(raw: unknown): Date {
+  if (raw instanceof Timestamp) {
+    return raw.toDate();
+  }
+  if (raw && typeof raw === 'object' && 'seconds' in raw) {
+    const seconds = Number((raw as { seconds?: number }).seconds ?? 0);
+    return new Date(seconds * 1000);
+  }
+  return new Date();
+}
+
+function removeUndefinedFields<T extends Record<string, unknown>>(payload: T): T {
+  const cleaned: Record<string, unknown> = {};
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  });
+
+  return cleaned as T;
+}
+
+export async function registerPerson(data: Omit<Person, 'id' | 'registeredAt'>) {
+  try {
+    const payload = removeUndefinedFields({
+      ...data,
+      faceDescriptor: normalizeFaceDescriptor(data.faceDescriptor) ?? [],
+      registeredAt: Timestamp.now(),
+    });
+
+    const docRef = await addDoc(personCollection, payload);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error registering person:', error);
+    throw error;
+  }
+}
+
+export async function getPersonById(personId: string): Promise<Person | null> {
+  try {
+    const snapshot = await getDocs(personCollection);
+    const found = snapshot.docs.find((docItem) => docItem.id === personId);
+
+    if (!found) return null;
+
+    const item = found.data();
+    return {
+      id: found.id,
+      ...item,
+      faceDescriptor: normalizeFaceDescriptor(item.faceDescriptor),
+      registeredAt: item.registeredAt?.toDate ? item.registeredAt.toDate() : new Date(),
+    } as Person;
+  } catch (error) {
+    console.error('Error fetching person:', error);
+    return null;
+  }
+}
+
+export async function getPersonByPhone(phone: string): Promise<Person | null> {
+  try {
+    const q = query(personCollection, where('phone', '==', phone));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) return null;
+
+    const docItem = snapshot.docs[0];
+    const data = docItem.data();
+    return {
+      id: docItem.id,
+      ...data,
+      faceDescriptor: normalizeFaceDescriptor(data.faceDescriptor),
+      registeredAt: data.registeredAt?.toDate ? data.registeredAt.toDate() : new Date(),
+    } as Person;
+  } catch (error) {
+    console.error('Error searching person:', error);
+    return null;
+  }
+}
+
+export async function getAllPersons(): Promise<Person[]> {
+  try {
+    const snapshot = await getDocs(personCollection);
+    return snapshot.docs.map((docItem) => {
+      const data = docItem.data();
+      return {
+        id: docItem.id,
+        ...data,
+        faceDescriptor: normalizeFaceDescriptor(data.faceDescriptor),
+        registeredAt: data.registeredAt?.toDate ? data.registeredAt.toDate() : new Date(),
+      } as Person;
+    });
+  } catch (error) {
+    console.error('Error fetching persons:', error);
+    return [];
+  }
+}
+
+export async function logEntry(data: Omit<Entry, 'id'>) {
+  try {
+    const payload = removeUndefinedFields({
+      ...data,
+      entryTime: Timestamp.now(),
+    });
+
+    const docRef = await addDoc(entriesCollection, payload);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error logging entry:', error);
+    throw error;
+  }
+}
+
+export async function getAllEntries(): Promise<Entry[]> {
+  try {
+    const q = query(entriesCollection, orderBy('entryTime', 'desc'), limit(500));
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((docItem) => {
+      const data = docItem.data();
+      return {
+        id: docItem.id,
+        ...data,
+        entryTime: normalizeEntryTimestamp(data.entryTime),
+        exitTime: data.exitTime ? normalizeEntryTimestamp(data.exitTime) : undefined,
+      } as Entry;
+    });
+  } catch (error) {
+    console.error('Error fetching all entries:', error);
+    return [];
+  }
+}
+
+export async function getRecentEntries(hours = 24): Promise<Entry[]> {
+  try {
+    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const q = query(
+      entriesCollection,
+      where('entryTime', '>=', Timestamp.fromDate(cutoffTime)),
+      orderBy('entryTime', 'desc'),
+      limit(100)
+    );
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((docItem) => {
+      const data = docItem.data();
+      return {
+        id: docItem.id,
+        ...data,
+        entryTime: normalizeEntryTimestamp(data.entryTime),
+        exitTime: data.exitTime ? normalizeEntryTimestamp(data.exitTime) : undefined,
+      } as Entry;
+    });
+  } catch (error) {
+    console.error('Error fetching entries:', error);
+    return [];
+  }
+}
+
+export async function getPersonEntries(personId: string): Promise<Entry[]> {
+  try {
+    const q = query(
+      entriesCollection,
+      where('personId', '==', personId),
+      orderBy('entryTime', 'desc'),
+      limit(50)
+    );
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((docItem) => {
+      const data = docItem.data();
+      return {
+        id: docItem.id,
+        ...data,
+        entryTime: normalizeEntryTimestamp(data.entryTime),
+      } as Entry;
+    });
+  } catch (error) {
+    console.error('Error fetching person entries:', error);
+    return [];
+  }
+}
+
+export async function registerVehicle(data: Omit<Vehicle, 'id'>) {
+  try {
+    const docRef = await addDoc(vehiclesCollection, data);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error registering vehicle:', error);
+    throw error;
+  }
+}
+
+export async function getVehicleByPlate(plate: string): Promise<Vehicle | null> {
+  try {
+    const q = query(vehiclesCollection, where('licensePlate', '==', plate.toUpperCase()));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return null;
+
+    const docItem = snapshot.docs[0];
+    return {
+      id: docItem.id,
+      ...docItem.data(),
+    } as Vehicle;
+  } catch (error) {
+    console.error('Error fetching vehicle:', error);
+    return null;
+  }
+}
+
+export async function updateEntryStatus(entryId: string, updates: Partial<Entry>) {
+  try {
+    const ref = doc(entriesCollection, entryId);
+    await updateDoc(ref, updates as Record<string, unknown>);
+    return true;
+  } catch (error) {
+    console.error('Error updating entry:', error);
+    return false;
+  }
+}
